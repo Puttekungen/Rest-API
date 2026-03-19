@@ -29,38 +29,21 @@ def get_db_connection():
         print(f"Fel vid anslutning till MySQL: {e}")
         return None
 
+@app.errorhandler(Exception)
+def handle_exception(e):
+    return jsonify({'error': 'User or Email already in use'}), 500
 
 @app.route('/', methods=['GET'])
 def index():
     return '''<h1>Documentation</h1>
-    <ul><li>GET /users</li></ul>
-    <ul><li>To create user: /users {“username”:”test”, “name”: “test”, "age":"99"}</li></ul>'''
-
-# @app.route('/users', methods=['GET'])
-# def get_users():
-#     users = [
-#         {"color": "Red", "id": 1, "fruit": "Grenade Apple"},
-#         {"color": "Yellow", "id": 2, "fruit": "Banana"},
-#         {"color": "Green", "id": 3, "fruit": "Melon"}
-#     ]
-#     return jsonify(users)
-
-# @app.route('/users', methods=['GET'])
-# def get_users():
-#     """Get all users"""
-#     users = get_db_connection()
-#     return jsonify(users)
-
-# @app.route('/users', methods=['GET'])
-# def get_users():
-#     users = [
-#         {"color": "Red", "id": 1, "fruit": "Grenade Apple"},
-#         {"color": "Yellow", "id": 2, "fruit": "Banana"},
-#         {"color": "Green", "id": 3, "fruit": "Melon"}
-#     ]
-#     """Get all users"""
-#     username = request.args.get('username', '')
-#     print(username)
+    <ul><li>kräver giltig bearer token GET /users - returnerar alla användare</li></ul>
+    <ul><li>kräver giltig bearer token GET /users/{id} - returnerar en specifik användare med id</li></ul>
+    <ul><li>kräver giltig bearer token GET /users/age/{age} - returnerar alla användare med en viss ålder</li></ul>
+    <ul><li>POST /create - skapar en ny användare. Accepterar JSON objekt på formatet {"username": "unikt namn", "name": "ditt namn", "age": din ålder, "password": "ditt lösenord", "email": "unik email"}</li></ul>
+    <ul><li>kräver giltig bearer token PUT /users/update/{id} - uppdaterar en användare med id</li></ul>
+    <ul><li>POST /login - loggar in en användare och returnerar en JWT-token, använd formatet {"username": "Ditt username", "password": "ditt password"}</li></ul>
+    <ul><li>kräver giltig bearer token GET /protected - den visar vilken användare man är inloggad som</li></ul>
+    '''
 
 
 @app.route('/users', methods=['GET'])
@@ -72,6 +55,7 @@ def get_users():
     sql = "SELECT username, name, email, age FROM users"
     cursor.execute(sql)
     users = cursor.fetchall()
+    connection.close()
    
     return jsonify(users)
 
@@ -86,7 +70,8 @@ def get_user(user_id):
     sql = "SELECT * FROM users WHERE id = %s"
     cursor.execute(sql, (user_id,))
     user = cursor.fetchone()
-   
+    connection.close()
+
     user.pop('password')
     if not user: # saknades personen i databasen?
         return jsonify({'error': 'User not found'}), 404
@@ -104,6 +89,7 @@ def get_user_age(user_age):
     sql = "SELECT * FROM users WHERE age = %s"
     cursor.execute(sql, (user_age,))
     user = cursor.fetchall()
+    connection.close()
    
     if not user: # saknades personen i databasen?
         return jsonify({'error': 'User not found'}), 404
@@ -111,47 +97,14 @@ def get_user_age(user_age):
         return jsonify(user)
 
 
+
 @app.route('/create', methods=['POST'])
-@jwt_required()
-def create_user():
-    """Create a new user"""
-    data = request.get_json()  # Hämta data från requesten.
-    username = data.get('username')
-    name = data.get('name')
-    age = data.get('age')
-    password = data.get('password')
-    email = data.get('email')
-        
-    connection = get_db_connection()
-        
-    cursor = connection.cursor()
-    sql = "INSERT INTO users (username, name, age, password, email) VALUES (%s, %s, %s, %s, %s)"
-    cursor.execute(sql, (username, name, age, generate_password_hash(password), email))
-        
-    connection.commit() # commit() gör klart skrivningen till databasen
-    user_id = cursor.lastrowid # cursor.lastrowid innehåller id på raden som skapades i DB
-        
-    user = {
-    'id': user_id,
-    'username': username,
-    'name': name,
-    'age': age,
-    'password': password,
-    'email': email
-    }
-    return jsonify(user), 201 # HTTP Status 201 Created
-
-
-# api-4
-@app.route('/users/input', methods=['POST'])
-@jwt_required()
 def creating_user():
     data = request.get_json(silent=True)
 
     if is_valid_user_data(data):
         # Logik för databas här...
 
-        data = request.get_json()  # Hämta data från requesten.
         username = data.get('username')
         name = data.get('name')
         age = data.get('age')
@@ -175,6 +128,8 @@ def creating_user():
         'password': password,
         'email': email
         }
+
+        connection.close()
 
         return jsonify({"message": "User created", "id": user_id}), 201
     else:
@@ -229,11 +184,16 @@ def update_user(user_id):
 
     # Kontrollera om någon rad faktiskt uppdaterades
     if cursor.rowcount == 0:
+        connection.close()
         return jsonify({"error": "Användaren hittades inte"}), 404
 
-    connection.close()
+    cursor = connection.cursor(dictionary=True)
+    sql = "SELECT * FROM users WHERE id = %s"
+    cursor.execute(sql, (user_id,))
+    user = cursor.fetchone()
 
-    return jsonify({"message": "Användare uppdaterad", "id": user_id}), 200
+    connection.close()
+    return jsonify(user), 200
 
 
 @app.route('/login', methods=['POST'])
@@ -252,12 +212,14 @@ def login():
     user = cursor.fetchone()
    
     if not user or not check_password_hash(user['password'], password):
+        connection.close()
         return jsonify({'error': 'Invalid username or password'}), 401
     
     if 'password' in user: # ta bort password innan vi skickar tillbaka user info
         del user['password']
 
     access_token = create_access_token(identity=username)
+    connection.close()
     return jsonify({
         'message': 'Login successful',
         'access_token': access_token,
@@ -269,12 +231,6 @@ def login():
 def protected():
     current_user = get_jwt_identity()
     # print(get_jwt())
-    return jsonify(logged_in_as=current_user), 200
-
-@app.route('/me', methods=['GET'])
-@jwt_required()
-def me():
-    current_user = get_jwt_identity()
     return jsonify(logged_in_as=current_user), 200
 
 if __name__ == '__main__':
