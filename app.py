@@ -7,9 +7,11 @@ from flask_jwt_extended import JWTManager, create_access_token, get_jwt, jwt_req
 
 
 
+# Skapar Flask-applikationen    
 app = Flask(__name__)
 CORS(app)
 app.secret_key = 'your_secret_key_here'  # TODO: Ändra detta till en slumpmässig hemlig nyckel
+# Initierar JWT-hantering för inloggning och skyddade endpoints
 jwt = JWTManager(app)
 
 # Databaskonfiguration
@@ -19,7 +21,7 @@ DB_CONFIG = {
     'password': '',  # Ändra detta till ditt MySQL-lösenord
     'database': 'inlamning_1'
 }
-# hel
+# Hjälpfunktion som skapar en ny databasanslutning
 def get_db_connection():
     """Skapa och returnera en databasanslutning"""
     try:
@@ -29,10 +31,12 @@ def get_db_connection():
         print(f"Fel vid anslutning till MySQL: {e}")
         return None
 
+# Global felhanterare som fångar oväntade exceptions. men är designad för att säga till när man försöker skapa en användare med redan existerande username eller email, eftersom dessa fält är unika i databasen.
 @app.errorhandler(Exception)
 def handle_exception(e):
     return jsonify({'error': 'User or Email already in use'}), 500
 
+# Route: Visar enkel API-dokumentation i HTML
 @app.route('/', methods=['GET'])
 def index():
     return '''<h1>Documentation</h1>
@@ -46,6 +50,7 @@ def index():
     '''
 
 
+# Route: Hämtar alla användare (kräver JWT)
 @app.route('/users', methods=['GET'])
 @jwt_required()
 def get_users():
@@ -60,6 +65,7 @@ def get_users():
     return jsonify(users)
 
 
+# Route: Hämtar en specifik användare via ID (kräver JWT)
 @app.route('/users/<int:user_id>', methods=['GET'])
 @jwt_required()
 def get_user(user_id):
@@ -79,6 +85,7 @@ def get_user(user_id):
         return jsonify(user)
        
 
+# Route: Hämtar användare med en viss ålder (kräver JWT)
 @app.route('/users/age/<int:user_age>', methods=['GET'])
 @jwt_required()
 def get_user_age(user_age):
@@ -98,6 +105,7 @@ def get_user_age(user_age):
 
 
 
+# Route: Skapar en ny användare
 @app.route('/create', methods=['POST'])
 def creating_user():
     data = request.get_json(silent=True)
@@ -137,6 +145,7 @@ def creating_user():
         return jsonify({"error": "Invalid userdata"}), 422
     
 
+# Hjälpfunktion: validerar inkommande user-data innan insert/update. Name måste våra en sträng, age måste vara ett heltal, email måste vara en sträng
 def is_valid_user_data(data):
     # Kontrollera att alla obligatoriska fält finns och har rätt typ
     if not data:
@@ -157,6 +166,7 @@ def is_valid_user_data(data):
     return True
 
 
+# Route: Uppdaterar en användare via ID (kräver JWT)
 @app.route('/users/update/<int:user_id>', methods=['PUT'])
 @jwt_required()
 def update_user(user_id):
@@ -196,6 +206,7 @@ def update_user(user_id):
     return jsonify(user), 200
 
 
+# Route: Loggar in användare och returnerar JWT-token
 @app.route('/login', methods=['POST'])
 def login():
     """User login"""
@@ -223,15 +234,16 @@ def login():
     return jsonify({
         'message': 'Login successful',
         'access_token': access_token,
-        # 'user': user
     })
 
+
+# Route: Enkel test-endpoint för att verifiera JWT
 @app.route('/protected', methods=['GET'])
 @jwt_required()
 def protected():
     current_user = get_jwt_identity()
-    # print(get_jwt())
     return jsonify(logged_in_as=current_user), 200
 
+# Startar appen lokalt i debug-läge
 if __name__ == '__main__':
     app.run(debug=True)
